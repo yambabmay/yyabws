@@ -108,7 +108,6 @@ func extractRateLimitingInfo(header http.Header) (rateLimitingInfo, error) {
 		retryAfter: retryAfter,
 	}
 	return rli, nil
-
 }
 
 // allowRequest Check if requests are allowed at this moment.
