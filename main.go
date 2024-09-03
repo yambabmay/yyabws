@@ -21,14 +21,14 @@ const (
 // rateLimitingInfo - information collected from the response headers
 type rateLimitingInfo struct {
 	limit      int // from  "X-RateLimit-Limit" header
-	burst      int // from  "X-RateLimit-Limit" header
-	remaining  int // from  "X-RateLimit-Limit" header
-	reset      int // from  "X-RateLimit-Limit" header
-	retryAfter int // from  "X-RateLimit-Limit" header
+	burst      int // from  "X-RateLimit-Burst" header
+	remaining  int // from  "X-RateLimit-Remaining" header
+	reset      int // from  "X-RateLimit-Reset" header
+	retryAfter int // from  "Retry-After" header
 }
 
 // rateLimiter - simple rate limiter that uses the upstream rate limiting
-// information to obey it and rate limit the downstream requests. The
+// information to obey it and rate limit the downstream requests.
 type rateLimiter struct {
 	// For modification of the rate limiting information
 	sync.Mutex
@@ -182,13 +182,12 @@ func newAtlasClient(secret string) (*atlasClient, error) {
 	io.Copy(io.Discard, rsp.Body)
 	// Return the Atlas client
 	return ac, nil
-
 }
 
 func (ac *atlasClient) forwardRequest(resp http.ResponseWriter, req *http.Request, path string) {
 	// Check if the rate limiter allows this request
 	if !ac.rlm.allowRequest() {
-		log.Println("too many requests from downstream")
+		log.Println("too many requests downstream")
 		resp.WriteHeader(http.StatusTooManyRequests)
 		return
 	}
