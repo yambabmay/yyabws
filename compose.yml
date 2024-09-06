@@ -1,0 +1,10 @@
+services:
+  server:
+    build: .
+    links: 
+      - "db:database"
+    ports:
+      - "8080:80"
+    env_file: ".env"
+  db:
+    image: redis
