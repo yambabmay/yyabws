@@ -2,13 +2,13 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"net/url"
 	"strconv"
-	"sync"
 
 	"github.com/yambabmay/yyabws/server/rlmd"
 	"github.com/yambabmay/yyabws/server/rlmu"
@@ -22,14 +22,13 @@ const (
 
 // atlasClient - Atlas client
 type atlasClient struct {
-	sync.Mutex
 	settings *Settings
 	ds       *rlmd.RateLimiter
 	us       *rlmu.RateLimiter
 	logger   *zap.Logger
 }
 
-func (s *atlasClient) setupUpstreamRateLimiter() error {
+func (s *atlasClient) init() error {
 	bURL, _ := url.Parse(s.settings.URL + "/series")
 	values := url.Values{}
 	values.Set("lifecycle", "live")
@@ -44,7 +43,7 @@ func (s *atlasClient) setupUpstreamRateLimiter() error {
 	}
 	defer rsp.Body.Close()
 
-	us, err := rlmu.New(rsp.Header, s.settings.MaxWaiting, s.logger)
+	us, err := rlmu.New(rsp.Header, s.logger)
 	if err != nil {
 		return err
 	}
@@ -64,28 +63,44 @@ func newAtlasClient(settings *Settings, logger *zap.Logger) (ac *atlasClient, er
 			ds.Close()
 		}
 	}()
+
 	ac = &atlasClient{
 		settings: settings,
 		ds:       ds,
 		logger:   logger,
 	}
-	if err := ac.setupUpstreamRateLimiter(); err != nil {
-		return nil, err
-	}
+	err = ac.init()
 	return ac, nil
 }
 
 func (s *atlasClient) forwardRequest(resp http.ResponseWriter, req *http.Request, path string) {
-	// Check if the rate limiter allows this request
-
-	if !s.us.GetSlot() {
-		s.logger.Debug("failed to get a slot")
+	status, secret, err := s.ds.Allow(context.Background(), req)
+	if err != nil {
+		if errors.Is(err, rlmd.ErrTooManyRequests) {
+			dsInfo, err := s.ds.Info(context.Background(), secret)
+			if err != nil {
+				resp.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			for k, v := range dsInfo {
+				resp.Header().Add(k, v)
+			}
+			resp.WriteHeader(status)
+			return
+		}
+		resp.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	if status != http.StatusOK {
+		resp.WriteHeader(status)
+		return
+	}
+	// Check if the upstream rate limiter allows this request
+	if !s.us.Slot() {
+		s.logger.Debug("upstream rate limiting: no slots available")
 		resp.WriteHeader(http.StatusTooManyRequests)
 		return
 	}
-
-	s.logger.Debug("got a slot")
-
 	// Create Atlas base url for series
 	baseURL, err := url.Parse(atlasURL + path)
 	if err != nil {
@@ -119,7 +134,6 @@ func (s *atlasClient) forwardRequest(resp http.ResponseWriter, req *http.Request
 		ruValues.Set("skip", fmt.Sprintf("%d", skip))
 	}
 	baseURL.RawQuery = ruValues.Encode()
-
 	// Create the upstream request
 	newReq, err := http.NewRequest(http.MethodGet, baseURL.String(), nil)
 	if err != nil {
@@ -147,49 +161,32 @@ func (s *atlasClient) forwardRequest(resp http.ResponseWriter, req *http.Request
 		return
 	}
 	s.us.Update(newResp.Header)
+	dsInfo, err := s.ds.Info(context.Background(), secret)
+	if err != nil {
+		resp.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
 	resp.Header().Add("Content-Type", newResp.Header.Get("Content-Type"))
 	resp.Header().Add("Content-Length", fmt.Sprintf("%d", newResp.ContentLength))
+	for k, v := range dsInfo {
+		resp.Header().Add(k, v)
+	}
 	io.Copy(resp, newResp.Body)
 }
 
 // seriesLiveRequestHandler request handler for endpoint "/series/live"
 func (s *atlasClient) seriesLiveRequestHandler(resp http.ResponseWriter, req *http.Request) {
-	status, err := s.ds.Allow(context.Background(), req)
-	if err != nil {
-		s.logger.Debug("is")
-		resp.WriteHeader(status)
-		return
-	}
-	s.Lock()
-	defer s.Unlock()
 	s.forwardRequest(resp, req, "/series")
 }
 
 // playersLiveRequestHandler request handler for endpoint "/players/live"
 func (s *atlasClient) playersLiveRequestHandler(resp http.ResponseWriter, req *http.Request) {
-	status, err := s.ds.Allow(context.Background(), req)
-	if err != nil {
-		resp.WriteHeader(http.StatusInternalServerError)
-		return
-	}
-	if status != http.StatusOK {
-		resp.WriteHeader(status)
-		return
-	}
-	s.Lock()
-	defer s.Unlock()
 	s.forwardRequest(resp, req, "/players")
 }
 
 // teamsLiveRequestHandler request handler for endpoint "/teams/live"
 func (s *atlasClient) teamsLiveRequestHandler(resp http.ResponseWriter, req *http.Request) {
-	status, err := s.ds.Allow(context.Background(), req)
-	if err != nil {
-		resp.WriteHeader(status)
-		return
-	}
-	s.Lock()
-	defer s.Unlock()
 	s.forwardRequest(resp, req, "/teams")
 }
 

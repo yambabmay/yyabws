@@ -12,35 +12,47 @@ import (
 type Settings struct {
 	URL           string
 	Secret        string
-	MaxWaiting    int
 	dsRlmSettings *rlmd.Settings
 }
 
 const (
-	defaultMaxWaitingRequests = int(100)
+	// Default requests per second
+	defaultRequestsPerSecond = 5
+	// Maximum number of retries of a redis transaction
+	dbMaxRetries = 5
+	// Default location of the secrets file
+	defaultSecretsFile = "./secrets.json"
 )
 
+// Get the settings from
 func dsStreamRlmSettings() *rlmd.Settings {
-	settings := &rlmd.Settings{}
-
+	settings := &rlmd.Settings{
+		RedisHost:         "localhost",
+		RedisPort:         "6379",
+		RedisMaxRetries:   dbMaxRetries,
+		SecretsFile:       defaultSecretsFile,
+		RequestsPerSecond: defaultRequestsPerSecond,
+	}
 	host := os.Getenv("REDIS_HOST")
-	if host == "" {
-		host = "localhost"
+	if host != "" {
+		settings.RedisHost = host
 	}
 	port := os.Getenv("REDIS_PORT")
-	if port == "" {
-		port = "6379"
+	if port != "" {
+		settings.RedisPort = port
 	}
 	secrets := os.Getenv("USERS_SECRETS_FILE")
-	if secrets == "" {
-		secrets = "./secrets.json"
+	if secrets != "" {
+		settings.SecretsFile = secrets
 	}
-
-	settings.RedisAddress = host + ":" + port
-	settings.RedisUser = os.Getenv("REDIS_USER")
-	settings.RedisPassword = os.Getenv("REDIS_PASSWORD")
-	settings.SecretsFile = secrets
-
+	user := os.Getenv("REDIS_USER")
+	if user != "" {
+		settings.RedisUser = user
+	}
+	password := os.Getenv("REDIS_PASSWORD")
+	if password != "" {
+		settings.RedisPassword = password
+	}
 	db := os.Getenv("REDIS_DB")
 	if db != "" {
 		val, err := strconv.Atoi(db)
@@ -48,6 +60,22 @@ func dsStreamRlmSettings() *rlmd.Settings {
 			log.Fatal(fmt.Errorf("converting `REDIS_DB` value to int %v", err))
 		}
 		settings.RedisDB = val
+	}
+	rps := os.Getenv("DS_REQUESTS_PER_SECOND")
+	if rps != "" {
+		val, err := strconv.Atoi(rps)
+		if err != nil {
+			log.Fatal(fmt.Errorf("converting `DS_REQUESTS_PER_SECOND` value to int %v", err))
+		}
+		settings.RequestsPerSecond = val
+	}
+	mr := os.Getenv("REDIS_MAX_RETRIES")
+	if mr != "" {
+		val, err := strconv.Atoi(rps)
+		if err != nil {
+			log.Fatal(fmt.Errorf("converting `REDIS_MAX_RETRIES` value to int %v", err))
+		}
+		settings.RedisMaxRetries = val
 	}
 	return settings
 }
@@ -66,19 +94,6 @@ func loadSettings() *Settings {
 		url = "https://atlas.abiosgaming.com/v3"
 	}
 	settings.URL = url
-
-	settings.MaxWaiting = defaultMaxWaitingRequests
-	maxWaitingRequests := os.Getenv("MAX_WAITING_REQUESTS")
-	if maxWaitingRequests != "" {
-		val, err := strconv.Atoi(maxWaitingRequests)
-		if err != nil {
-			log.Fatal(fmt.Errorf("converting `MAX_WAITING_REQUESTS` value to int %v", err))
-		}
-		if val < 0 {
-			log.Fatal(fmt.Errorf("invalid `MAX_WAITING_REQUESTS` value %v", val))
-		}
-		settings.MaxWaiting = val
-	}
 
 	settings.dsRlmSettings = dsStreamRlmSettings()
 	return settings

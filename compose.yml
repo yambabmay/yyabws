@@ -4,7 +4,7 @@ services:
     links: 
       - "db:database"
     ports:
-      - "8080:80"
+      - "${HOST_PORT}:80"
     env_file: ".env"
   db:
-    image: redis
+    image: redis:7.4.0-alpine
