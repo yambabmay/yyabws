@@ -16,18 +16,18 @@ This file is copied to `WORKDIR` of the server in the server docker image and is
 ```bash
 ./scripts/gen-secrets.sh
 ```
-### Edit [.env](.env)
-Update the `ATLAS_SECRET` value in [.env](.env) file.
+
+Pass the Atlas secret to use in the environment variable  `M
 
 ### Build and run
 Building:
-```
-docker-compose build
+```bash
+MY_ATLAS_SECRET="<YOUR_ATLAS_SECRET>" docker-compose build
 ```
 Running:
 
 ```bash
-docker-compose up
+MY_ATLAS_SECRET="<YOUR_ATLAS_SECRET>" docker-compose up
 ```
 Checking:
 ```bash
@@ -60,7 +60,7 @@ curl -i --location --request GET 'http://localhost:8081/teams/live?secret=df0161
 ```
 Enter the server container and run a little stress test:
 ```
-docker-compose exec -it server /bin/bash
+MY_ATLAS_SECRET="<YOUR_ATLAS_SECRET>" docker-compose exec -it server /bin/bash
 root@bd72125b06a4:/usr/src/app#
 
 ```
