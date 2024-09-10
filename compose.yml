@@ -1,0 +1,10 @@
+services:
+  server:
+    build: .
+    links: 
+      - "db:database"
+    ports:
+      - "${HOST_PORT}:80"
+    env_file: ".env"
+  db:
+    image: redis:7.4.0-alpine
